@@ -25,9 +25,17 @@ contract Staker is IStaker {
     uint256 public freezeTime;
     uint8 public percentage;
 
+    uint256 constant public AMOUNT_MULTIPLIER = 10**11;
+    uint256 constant public TIME_MULTIPLIER = 600;
+
     // limitation on percentage
     modifier onlyWithinBounds(uint8 _percentage) {
         require(_percentage >= 1 && _percentage <= 10 && percentage != _percentage, "Incorrect value");
+        _;
+    }
+
+     modifier onlyAdmin() {
+        require(msg.sender == admin, "Unauthorized");
         _;
     }
 
@@ -48,7 +56,6 @@ contract Staker is IStaker {
         // fetch balance and check if conditions are met
         uint lpTokenBalance = IUniswapV2Pair(pairAddress).balanceOf(msg.sender);
         uint allowanceLimit = IUniswapV2Pair(pairAddress).allowance(msg.sender, address(this));
-        console.log("INFO: ", lpTokenBalance, allowanceLimit, msg.sender);
         require(lpTokenBalance >= amount, "Insufficient balance");
         require(allowanceLimit >= amount, "Insufficient allowance");
 
@@ -95,23 +102,21 @@ contract Staker is IStaker {
         IUniswapV2Pair(pairAddress).transfer(msg.sender, returnableAmount);
     }
 
-    function adjust(uint256 _freezeTime, uint8 _percentage) external onlyWithinBounds(_percentage) {
-        require(msg.sender == admin, "Unauthorized");
+    function adjust(uint256 _freezeTime, uint8 _percentage) external onlyWithinBounds(_percentage) onlyAdmin {
         freezeTime = _freezeTime;
         percentage = _percentage;
     }
 
     function calculateReward(uint256 lpTokenAmount, uint256 stakingTime, uint8 _percentage) internal pure returns (uint256) {
-        if(stakingTime < 600 || lpTokenAmount < 10**11) return 0;
+        if(stakingTime < TIME_MULTIPLIER || lpTokenAmount < AMOUNT_MULTIPLIER) return 0;
 
-        uint256 timeMultiplier = stakingTime / 600; // ten minutes
-        uint256 amountMultiplier = lpTokenAmount / 10**11;
+        uint256 timeMultiplier = stakingTime / TIME_MULTIPLIER;
+        uint256 amountMultiplier = lpTokenAmount / AMOUNT_MULTIPLIER;
 
         return timeMultiplier * amountMultiplier * _percentage;
     }
 
-    function destroyContract() external {
-        require(msg.sender == admin, "Only admin can trigger contract destruction");
+    function destroyContract() external onlyAdmin {
         selfdestruct(payable(admin));
     }
 }

@@ -14,7 +14,7 @@ describe("Staker", function () {
   const WETH_ADDRESS = "0xc778417e063141139fce010982780140aa0cd5ab";
   const MERC_ADDRESS = "0x2681E46b62395c10Fa89468d637bB629bD76EE88";
   const PAIR_ADDRESS = "0x8E581692aEEd27A4E090Efd8eDF015062a2D7335";
-  const TEN_MINUTES = 600;
+  const FREEZE_TIME = 600;
   const PERCENTAGE = 1;
 
   beforeEach(async () => {
@@ -23,7 +23,7 @@ describe("Staker", function () {
       FACTORY_ADDRESS, 
       WETH_ADDRESS,
       MERC_ADDRESS,
-      TEN_MINUTES,
+      FREEZE_TIME,
       PERCENTAGE,
       PAIR_ADDRESS
     );
@@ -40,6 +40,8 @@ describe("Staker", function () {
       method: "hardhat_impersonateAccount",
       params: [process.env.METAMASK_PUBLIC_KEY],
     });
+
+    await myERC20Token.connect(signer).transfer(staker.address, 500000000)
   });
 
   afterEach(async () => {
@@ -62,6 +64,14 @@ describe("Staker", function () {
     expect(await staker.freezeTime()).to.equal(600);
     expect(await staker.percentage()).to.equal(1);
     expect(((await staker.pairAddress()).toLowerCase())).to.equal(PAIR_ADDRESS.toLowerCase());
+  });
+
+  it("Should get destroyed correctly", async () => {
+    expect(await staker.admin()).to.equal(signers[0].address);
+    await expect(staker.connect(signers[1]).destroyContract())
+          .to.be.revertedWith("Unauthorized");
+    await staker.destroyContract();
+    await expect(staker.admin()).to.be.reverted;
   });
 
   it("Should stake correctly", async () => {
@@ -91,47 +101,65 @@ describe("Staker", function () {
     const stake0 = await staker.connect(signer).stakesByAddress(process.env.METAMASK_PUBLIC_KEY, 0);
     expect(stake0.amount).to.be.equal(allowableLiquidityTokenAmount);
 
-    const timestampBefore = (await ethers.provider.getBlock("latest")).timestamp;
+    // fast forward 5 minutes and try to claim reward
+    // time multiplier = 1, 1 point per 600 seconds (10 minutes)
+    const threeHundredSeconds = 300;
+    await network.provider.request({ method: "evm_increaseTime", params: [threeHundredSeconds] });
+    await network.provider.request({ method: "evm_mine", params: [] });
+    const mercBalanceBeforeClaim0 = await myERC20Token.balanceOf(process.env.METAMASK_PUBLIC_KEY);
+    await staker.connect(signer).claim();
+    const mercBalanceAfterClaim0 = await myERC20Token.balanceOf(process.env.METAMASK_PUBLIC_KEY);
+    // no reward for staking for less than 10 minutes
+    expect(mercBalanceAfterClaim0.sub(mercBalanceBeforeClaim0)).to.be.equal(0);
 
     // fast forward 10 minutes and try to claim reward
-    await network.provider.request({
-      method: "evm_increaseTime",
-      params: [600]
-    });
+    // time multiplier = 1, 1 point per 600 seconds (10 minutes)
+    const sixHundredSeconds = 600;
+    await network.provider.request({ method: "evm_increaseTime", params: [sixHundredSeconds] });
+    await network.provider.request({ method: "evm_mine", params: [] });
+    const mercBalanceBeforeClaim = await myERC20Token.balanceOf(process.env.METAMASK_PUBLIC_KEY);
+    await staker.connect(signer).claim();
+    const mercBalanceAfterClaim = await myERC20Token.balanceOf(process.env.METAMASK_PUBLIC_KEY);
+    // 19 mercwei for staking 1999999999000 lpwei for 10 minutes at default 1%
+    expect(mercBalanceAfterClaim.sub(mercBalanceBeforeClaim)).to.be.equal(19);
 
-    await network.provider.request({
-      method: "evm_mine",
-      params: []
-    });
+    // fast forward 10 minutes and try to claim reward once again
+    // time multiplier = 1, 1 point per 600 seconds (10 minutes)
+    await network.provider.request({ method: "evm_increaseTime", params: [sixHundredSeconds] });
+    await network.provider.request({ method: "evm_mine", params: [] });
+    const mercBalanceBeforeClaim2 = await myERC20Token.balanceOf(process.env.METAMASK_PUBLIC_KEY);
+    await staker.connect(signer).claim();
+    const mercBalanceAfterClaim2 = await myERC20Token.balanceOf(process.env.METAMASK_PUBLIC_KEY);
+    // stake timestamp should have been updated -- for another 10 minutes there should be another 19 mercwei, not 38
+    expect(mercBalanceAfterClaim2.sub(mercBalanceBeforeClaim2)).to.be.equal(19);
+  });
 
-    const timestampAfter = (await ethers.provider.getBlock("latest")).timestamp;
+  it("Should adjust freeze time and percentage correctly", async () => {
+    await expect(staker.connect(signers[1]).adjust(1600, 2)).to.be.revertedWith("Unauthorized");
+    await expect(staker.adjust(1800, 22)).to.be.revertedWith("Incorrect value"); // incorrect percentage
 
-    //await staker.connect(signer).claim();
-    console.log( myERC20Token(MERC_ADDRESS) )
+    await staker.adjust(1800, 2)
+
+    expect(await staker.freezeTime()).to.be.equal(1800);
+    expect(await staker.percentage()).to.be.equal(2);
+
+    // give pool token allowance to Staker for
+    const allowableLiquidityTokenAmount = await pairContract.balanceOf(signer.address);
+    await pairContract.connect(signer).approve(staker.address, allowableLiquidityTokenAmount)
+    expect(await pairContract.allowance(signer.address, staker.address)).to.be.equal(allowableLiquidityTokenAmount);
+
+    // stake and check if Staker correctly added new Stake
+    await staker.connect(signer).stake(allowableLiquidityTokenAmount);
+    const stake0 = await staker.connect(signer).stakesByAddress(process.env.METAMASK_PUBLIC_KEY, 0);
+    expect(stake0.amount).to.be.equal(allowableLiquidityTokenAmount);
+
+    // for the same amount of liquidity token, reward should be two times higher than before, 19x2=38
+    const sixHundredSeconds = 600;
+    await network.provider.request({ method: "evm_increaseTime", params: [sixHundredSeconds] });
+    await network.provider.request({ method: "evm_mine", params: [] });
+    const mercBalanceBeforeClaim = await myERC20Token.balanceOf(process.env.METAMASK_PUBLIC_KEY);
+    await staker.connect(signer).claim();
+    const mercBalanceAfterClaim = await myERC20Token.balanceOf(process.env.METAMASK_PUBLIC_KEY);
+    expect(mercBalanceAfterClaim.sub(mercBalanceBeforeClaim)).to.be.equal(38);
   });
 });
-
-// it("Should check native balance with native transfer to contract", async () => {
-//   const ethAmount = parseEther("1.0"); // exactly 1 ETH
-
-//   // record balance before any action
-//   const ethBalanceBefore = await signers[0].getBalance();
-
-//   // only send tx, exact amount of gas used is unknown until tx is mined
-//   const sentTx = await exchange.exchange(nativeEth, usdc.address, ethAmount, 0, { value: ethAmount })
-
-//   // wait until tx is mined
-//   const minedTx = await sentTx.wait();
-
-//   // after tx is mined, we know everyting about this tx
-//   const fee = minedTx.effectiveGasPrice.mul(minedTx.cumulativeGasUsed);
-
-//   // fetch balance after all actions
-//   const ethBalanceAfter = await signers[0].getBalance();
-
-//   // check balance - substract value sent to contract and exact fee
-//   expect(ethBalanceAfter).to.be.equal(ethBalanceBefore.sub(ethAmount).sub(fee));
-// })
-
-    // await expect(() => token.transfer(walletTo.address, 200))
-    //   .to.changeTokenBalances(token, [wallet, walletTo], [-200, 200]);
