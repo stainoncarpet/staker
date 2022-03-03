@@ -89,7 +89,7 @@ contract Staker is IStaker {
 
         // find matured stakes, remove them from registry, pay reward for staking
         for (uint256 index = 0; index < stakes.length; index++) {
-            if((stakes[index].timestamp + freezeTime) <= block.timestamp) {
+            if(block.timestamp - stakes[index].timestamp >= freezeTime) {
                 returnableAmount += stakes[index].amount;
                 rewardAmount += calculateReward(stakes[index].amount, block.timestamp - stakes[index].timestamp, percentage);
 

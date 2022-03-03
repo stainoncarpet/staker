@@ -16,6 +16,7 @@ describe("Staker", function () {
   const PAIR_ADDRESS = "0x8E581692aEEd27A4E090Efd8eDF015062a2D7335";
   const FREEZE_TIME = 600;
   const PERCENTAGE = 1;
+  const SIX_HUNDRED_SECONDS = 600;
 
   beforeEach(async () => {
     Staker = await ethers.getContractFactory("Staker");
@@ -68,8 +69,7 @@ describe("Staker", function () {
 
   it("Should get destroyed correctly", async () => {
     expect(await staker.admin()).to.equal(signers[0].address);
-    await expect(staker.connect(signers[1]).destroyContract())
-          .to.be.revertedWith("Unauthorized");
+    await expect(staker.connect(signers[1]).destroyContract()).to.be.revertedWith("Unauthorized");
     await staker.destroyContract();
     await expect(staker.admin()).to.be.reverted;
   });
@@ -81,6 +81,9 @@ describe("Staker", function () {
     const allowableLiquidityTokenAmount = await pairContract.balanceOf(signer.address);
     await pairContract.connect(signer).approve(staker.address, allowableLiquidityTokenAmount)
     expect(await pairContract.allowance(signer.address, staker.address)).to.be.equal(allowableLiquidityTokenAmount);
+
+    await expect(staker.connect(signer).stake(0)).to.be.revertedWith("Amount must be non-zero");
+    await expect(staker.connect(signer).stake(allowableLiquidityTokenAmount + 100)).to.be.revertedWith("Insufficient balance");
 
     // stake and check if Staker correctly added new Stake
     await staker.connect(signer).stake(allowableLiquidityTokenAmount);
@@ -114,8 +117,7 @@ describe("Staker", function () {
 
     // fast forward 10 minutes and try to claim reward
     // time multiplier = 1, 1 point per 600 seconds (10 minutes)
-    const sixHundredSeconds = 600;
-    await network.provider.request({ method: "evm_increaseTime", params: [sixHundredSeconds] });
+    await network.provider.request({ method: "evm_increaseTime", params: [SIX_HUNDRED_SECONDS] });
     await network.provider.request({ method: "evm_mine", params: [] });
     const mercBalanceBeforeClaim = await myERC20Token.balanceOf(process.env.METAMASK_PUBLIC_KEY);
     await staker.connect(signer).claim();
@@ -125,7 +127,7 @@ describe("Staker", function () {
 
     // fast forward 10 minutes and try to claim reward once again
     // time multiplier = 1, 1 point per 600 seconds (10 minutes)
-    await network.provider.request({ method: "evm_increaseTime", params: [sixHundredSeconds] });
+    await network.provider.request({ method: "evm_increaseTime", params: [SIX_HUNDRED_SECONDS] });
     await network.provider.request({ method: "evm_mine", params: [] });
     const mercBalanceBeforeClaim2 = await myERC20Token.balanceOf(process.env.METAMASK_PUBLIC_KEY);
     await staker.connect(signer).claim();
@@ -154,12 +156,58 @@ describe("Staker", function () {
     expect(stake0.amount).to.be.equal(allowableLiquidityTokenAmount);
 
     // for the same amount of liquidity token, reward should be two times higher than before, 19x2=38
-    const sixHundredSeconds = 600;
-    await network.provider.request({ method: "evm_increaseTime", params: [sixHundredSeconds] });
+    await network.provider.request({ method: "evm_increaseTime", params: [SIX_HUNDRED_SECONDS] });
     await network.provider.request({ method: "evm_mine", params: [] });
     const mercBalanceBeforeClaim = await myERC20Token.balanceOf(process.env.METAMASK_PUBLIC_KEY);
     await staker.connect(signer).claim();
     const mercBalanceAfterClaim = await myERC20Token.balanceOf(process.env.METAMASK_PUBLIC_KEY);
     expect(mercBalanceAfterClaim.sub(mercBalanceBeforeClaim)).to.be.equal(38);
+  });
+
+  it("Should unstake correctly", async () => {
+    // give pool token allowance to Staker for
+    const allowableLiquidityTokenAmount = await pairContract.balanceOf(signer.address);
+    await pairContract.connect(signer).approve(staker.address, allowableLiquidityTokenAmount)
+
+    // stake and check if Staker correctly added new Stake
+    await staker.connect(signer).stake(allowableLiquidityTokenAmount);
+    const stake0 = await staker.connect(signer).stakesByAddress(process.env.METAMASK_PUBLIC_KEY, 0);
+    expect(stake0.amount).to.be.equal(allowableLiquidityTokenAmount);
+
+    // unstake before freeze time, sooner than default 600 seconds expires
+    await network.provider.request({ method: "evm_increaseTime", params: [SIX_HUNDRED_SECONDS - 100] });
+    await network.provider.request({ method: "evm_mine", params: [] });
+
+    // liquidity tokens should belong to Staker, EOA shouldn't have any
+    const eoaLiquidityPoolBalance = await pairContract.balanceOf(process.env.METAMASK_PUBLIC_KEY);
+    expect(eoaLiquidityPoolBalance).to.be.equal(0);
+    const stakerContractLiquidityPoolBalance = await pairContract.balanceOf(staker.address);
+    expect(stakerContractLiquidityPoolBalance).to.be.equal(allowableLiquidityTokenAmount);
+
+    await staker.connect(signer).unstake();
+
+    // unstaking in this case shouldn't have caused any changes
+    const eoaLiquidityPoolBalance2 = await pairContract.balanceOf(process.env.METAMASK_PUBLIC_KEY);
+    expect(eoaLiquidityPoolBalance2).to.be.equal(0);
+    const stakerContractLiquidityPoolBalance2 = await pairContract.balanceOf(staker.address);
+    expect(stakerContractLiquidityPoolBalance2).to.be.equal(allowableLiquidityTokenAmount);
+
+    // unstake after reward becomes availle
+    await network.provider.request({ method: "evm_increaseTime", params: [SIX_HUNDRED_SECONDS + 100] });
+    await network.provider.request({ method: "evm_mine", params: [] });
+
+    // liquidity tokens should belong to Staker, EOA shouldn't have any
+    const eoaLiquidityPoolBalance3 = await pairContract.balanceOf(process.env.METAMASK_PUBLIC_KEY);
+    expect(eoaLiquidityPoolBalance3).to.be.equal(0);
+    const stakerContractLiquidityPoolBalance3 = await pairContract.balanceOf(staker.address);
+    expect(stakerContractLiquidityPoolBalance3).to.be.equal(allowableLiquidityTokenAmount);
+
+    await staker.connect(signer).unstake();
+
+    // after unstaking, liquidity tokens should belong to EOA, Staker shouldn't have any
+    const eoaLiquidityPoolBalance4 = await pairContract.balanceOf(process.env.METAMASK_PUBLIC_KEY);
+    expect(eoaLiquidityPoolBalance4).to.be.equal(allowableLiquidityTokenAmount);
+    const stakerContractLiquidityPoolBalance4 = await pairContract.balanceOf(staker.address);
+    expect(stakerContractLiquidityPoolBalance4).to.be.equal(0);
   });
 });
