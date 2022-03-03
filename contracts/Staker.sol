@@ -6,6 +6,7 @@ import "./IUniswapV2Pair.sol";
 import "./IUniswapV2Factory.sol";
 import "./IStaker.sol";
 import "./MyEIP20Interface.sol";
+import "hardhat/console.sol";
 
 contract Staker is IStaker {
     struct Stake {
@@ -47,6 +48,7 @@ contract Staker is IStaker {
         // fetch balance and check if conditions are met
         uint lpTokenBalance = IUniswapV2Pair(pairAddress).balanceOf(msg.sender);
         uint allowanceLimit = IUniswapV2Pair(pairAddress).allowance(msg.sender, address(this));
+        console.log("INFO: ", lpTokenBalance, allowanceLimit, msg.sender);
         require(lpTokenBalance >= amount, "Insufficient balance");
         require(allowanceLimit >= amount, "Insufficient allowance");
 

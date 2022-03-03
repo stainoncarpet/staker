@@ -17,6 +17,7 @@ declare global {
       ETHERSCAN_API_KEY: string;
       ALCHEMY_KEY: string;
       METAMASK_PRIVATE_KEY: string;
+      METAMASK_PUBLIC_KEY: string;
       COINMARKETCAP_API_KEY: string;
       RINKEBY_URL: string;
     }
@@ -53,8 +54,6 @@ task("destroy", "Destroy contract")
   })
 ;
 
-
-
 const config: HardhatUserConfig = {
   solidity: "0.8.11",
   networks: {
@@ -65,7 +64,7 @@ const config: HardhatUserConfig = {
     hardhat: {
       forking: {
         url: process.env.RINKEBY_URL,
-        blockNumber: 10264465
+        blockNumber: 10264465,
       }
     }
   },
