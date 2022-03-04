@@ -25,21 +25,21 @@ contract Staker is IStaker {
     uint256 public freezeTime;
     uint8 public percentage;
 
-    uint256 constant public AMOUNT_MULTIPLIER = 10**11;
-    uint256 constant public TIME_MULTIPLIER = 600;
+    uint256 constant public AMOUNT_MULTIPLIER_UNIT = 10**11;
+    uint16 constant public TIME_MULTIPLIER_UNIT = 600;
 
     // limitation on percentage
     modifier onlyWithinBounds(uint8 _percentage) {
-        require(_percentage >= 1 && _percentage <= 10 && percentage != _percentage, "Incorrect value");
+        require(_percentage >= 1 && _percentage <= 10 && percentage != _percentage, "Only values between 1 and 10 are allowed");
         _;
     }
 
-     modifier onlyAdmin() {
+    modifier onlyAdmin() {
         require(msg.sender == admin, "Unauthorized");
         _;
     }
 
-    // tokenA - WETH, tokenB - MyERC20Token
+    // tokenA - WETH, tokenB - MERC
     constructor(address _factoryAddress, address _tokenAAddress, address _tokenBAddress, uint256 _freezeTime, uint8 _percentage, address _pairAddress) onlyWithinBounds(_percentage) {
         admin = msg.sender;
         factoryAddress = _factoryAddress;
@@ -53,9 +53,11 @@ contract Staker is IStaker {
     function stake(uint256 amount) external {
         require(amount > 0, "Amount must be non-zero");
 
-        // fetch balance and check if conditions are met
+        // fetch balance and allowance
         uint lpTokenBalance = IUniswapV2Pair(pairAddress).balanceOf(msg.sender);
         uint allowanceLimit = IUniswapV2Pair(pairAddress).allowance(msg.sender, address(this));
+
+        // check if staking conditions are met
         require(lpTokenBalance >= amount, "Insufficient balance");
         require(allowanceLimit >= amount, "Insufficient allowance");
 
@@ -108,10 +110,10 @@ contract Staker is IStaker {
     }
 
     function calculateReward(uint256 lpTokenAmount, uint256 stakingTime, uint8 _percentage) internal pure returns (uint256) {
-        if(stakingTime < TIME_MULTIPLIER || lpTokenAmount < AMOUNT_MULTIPLIER) return 0;
+        if(stakingTime < TIME_MULTIPLIER_UNIT || lpTokenAmount < AMOUNT_MULTIPLIER_UNIT) return 0;
 
-        uint256 timeMultiplier = stakingTime / TIME_MULTIPLIER;
-        uint256 amountMultiplier = lpTokenAmount / AMOUNT_MULTIPLIER;
+        uint256 timeMultiplier = stakingTime / TIME_MULTIPLIER_UNIT;
+        uint256 amountMultiplier = lpTokenAmount / AMOUNT_MULTIPLIER_UNIT;
 
         return timeMultiplier * amountMultiplier * _percentage;
     }

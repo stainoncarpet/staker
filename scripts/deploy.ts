@@ -1,16 +1,12 @@
+/* eslint-disable node/no-missing-import */
 /* eslint-disable prettier/prettier */
+
 import { ethers } from "hardhat";
+import { FACTORY_ADDRESS, FREEZE_TIME, MERC_ADDRESS, PAIR_ADDRESS, PERCENTAGE, WETH_ADDRESS } from "../hardhat.config";
 
 const main = async () => {
   const Staker = await ethers.getContractFactory("Staker");
-  const staker = await Staker.deploy(
-    "0x5C69bEe701ef814a2B6a3EDD4B1652CB9cc5aA6f", 
-    "0xc778417e063141139fce010982780140aa0cd5ab",
-    "0x2681E46b62395c10Fa89468d637bB629bD76EE88",
-    600,
-    1,
-    "0x8E581692aEEd27A4E090Efd8eDF015062a2D7335"
-  );
+  const staker = await Staker.deploy(FACTORY_ADDRESS, WETH_ADDRESS, MERC_ADDRESS, FREEZE_TIME, PERCENTAGE, PAIR_ADDRESS);
 
   await staker.deployed();
 
