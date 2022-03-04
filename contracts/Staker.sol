@@ -6,7 +6,6 @@ import "./IUniswapV2Pair.sol";
 import "./IUniswapV2Factory.sol";
 import "./IStaker.sol";
 import "./MyEIP20Interface.sol";
-import "hardhat/console.sol";
 
 contract Staker is IStaker {
     struct Stake {

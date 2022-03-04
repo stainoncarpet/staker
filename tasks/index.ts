@@ -4,7 +4,6 @@
 /* eslint-disable no-unused-vars */
 
 import { task } from "hardhat/config";
-import { PairAbi } from "../hardhat.config";
 
 const NETWORK = "rinkeby";
 
@@ -19,13 +18,10 @@ export const runTasks = async () => {
             const alchemyProvider = new hre.ethers.providers.AlchemyProvider(NETWORK, process.env.ALCHEMY_KEY);
             const walletOwner = new hre.ethers.Wallet(process.env.METAMASK_PRIVATE_KEY, alchemyProvider);
             const stakerContractInstance = new hre.ethers.Contract(taskArguments.staker, contractSchema.abi, walletOwner);
-            const pairContractInstance = new hre.ethers.Contract(taskArguments.pair, PairAbi, walletOwner);
 
-            const approvalTx = await pairContractInstance.approve(taskArguments.staker, taskArguments.amount);
             const stakeTx = await stakerContractInstance.stake(taskArguments.amount);
 
-            console.log("Receipt #1: ", approvalTx);
-            console.log("Receipt #2: ", stakeTx);
+            console.log("Receipt: ", stakeTx);
         })
     ;
 
